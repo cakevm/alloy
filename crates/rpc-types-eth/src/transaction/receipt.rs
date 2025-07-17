@@ -1,5 +1,5 @@
 use crate::Log;
-use alloy_consensus::{ReceiptEnvelope, TxReceipt, TxType};
+use alloy_consensus::{Receipt, ReceiptEnvelope, TxReceipt, TxType};
 use alloy_network_primitives::ReceiptResponse;
 use alloy_primitives::{Address, BlockHash, TxHash, B256};
 use alloy_sol_types::SolEvent;
@@ -295,6 +295,12 @@ impl<T: TxReceipt<Log = Log>> ReceiptResponse for TransactionReceipt<T> {
 impl From<TransactionReceipt> for TransactionReceipt<ReceiptEnvelope<alloy_primitives::Log>> {
     fn from(value: TransactionReceipt) -> Self {
         value.into_primitives_receipt()
+    }
+}
+
+impl<T> From<TransactionReceipt<ReceiptEnvelope<T>>> for Receipt<T> {
+    fn from(receipt: TransactionReceipt<ReceiptEnvelope<T>>) -> Self {
+        receipt.into_inner().into_receipt()
     }
 }
 
