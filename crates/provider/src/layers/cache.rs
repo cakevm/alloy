@@ -191,6 +191,15 @@ where
         }))
     }
 
+    fn get_balance(&self, address: Address) -> RpcWithBlock<Address, U256> {
+        let client = self.inner.weak_client();
+        let cache = self.cache.clone();
+        RpcWithBlock::new_provider(move |block_id| {
+            let req = RequestType::new("eth_getBalance", address).with_block_id(block_id);
+            cache_rpc_call_with_block!(cache, client, req)
+        })
+    }
+
     fn get_code_at(&self, address: Address) -> RpcWithBlock<Address, Bytes> {
         let client = self.inner.weak_client();
         let cache = self.cache.clone();
@@ -729,6 +738,45 @@ mod tests {
             assert_eq!(counter2, U256::from(1));
             let counter2_cached = provider.get_storage_at(counter_addr, U256::ZERO).block_id(block_id2).await.unwrap(); // Received from cache.
             assert_eq!(counter2, counter2_cached);
+
+            shared_cache.save_cache(path).unwrap();
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_get_balance() {
+        run_with_tempdir("get-balance", |dir| async move {
+            let cache_layer = CacheLayer::new(100);
+            let cache_layer2 = cache_layer.clone();
+            let shared_cache = cache_layer.cache();
+            let anvil = Anvil::new().spawn();
+            let provider = ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .layer(cache_layer)
+                .connect_http(anvil.endpoint_url());
+
+            let path = dir.join("rpc-cache-balance.txt");
+            shared_cache.load_cache(path.clone()).unwrap();
+
+            let address = anvil.addresses()[0];
+
+            // Get balance at block 0 from RPC (populates cache)
+            let balance = provider.get_balance(address).block_id(0.into()).await.unwrap();
+            assert!(balance > U256::ZERO);
+
+            // Drop anvil to ensure second call can't hit RPC
+            drop(anvil);
+
+            // Create new provider with same cache but dead endpoint
+            let provider2 = ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .layer(cache_layer2)
+                .connect_http("http://localhost:1".parse().unwrap());
+
+            // This only succeeds if cache is hit
+            let balance2 = provider2.get_balance(address).block_id(0.into()).await.unwrap();
+            assert_eq!(balance, balance2);
 
             shared_cache.save_cache(path).unwrap();
         })
